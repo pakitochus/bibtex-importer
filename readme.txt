@@ -1,5 +1,5 @@
 === BibTeX Importer ===
-Contributors: mfenner
+Contributors: mfenner, pakitochus
 Donate link: None
 Tags: importer, reference, bibtex, citeulike, science, research, res-comms
 Requires at least: 3.0
@@ -10,9 +10,11 @@ Import links in the BibTeX reference format.
 
 == Description ==
 
-Import links in the BibTeX reference format, either from a file or URL. Only valid links (with title and URL, no duplicate) are imported, errors will be reported during importing. The importer will automatically file the links into categories based on the BibTeX entry type (and create the category if necessary). An additional category for all imported links can be assigned. The importer places the original BibTeX entry into the notes field, and uses the format <strong>first_author year.</strong> <em>title</em> for the link name. 
+Import BibTeX entries in BibTeX reference format, either from a file or URL. It imports them as posts in the custom taxonomy defined by the [academix](https://themeforest.net/item/academix-multipurpose-researcher-and-professor-wordpress-theme/20798003) wordpress template. 
 
 The importer uses the bibtexParse library from the Bibliophile project: http://bibliophile.sourceforge.net/ and is based on the Wordpress OPML Importer: http://wordpress.org/extend/plugins/opml-importer/.
+
+Supports duplicate detection via DOI (requires DOI for all entries). 
 
 == Installation ==
 
