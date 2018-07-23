@@ -77,11 +77,45 @@ class BibTeX_Import extends WP_Importer {
 		  return $entry['url'];
 	}
 	
+	function get_doi($entry){
+		if (strpos($entry['doi'], 'http') === 0) {
+			$doi = substr(parse_url($entry['doi'], PHP_URL_PATH),1);
+		} else {
+			$doi = $entry['doi'];
+		}
+		return $doi;
+	}
+	
 	function is_duplicate( $entry ) {
 		// Check whether link already exists
-		// Todo: some duplicate links are not recognized
-		$duplicate = get_bookmarks( array( 'limit' => 1, 'search' => $this->doi_or_url( $entry )));
-		return (count($duplicate) == 1 ? TRUE : FALSE);
+		$rd_args = array(
+			'meta_query' => array(
+				array(
+					'key' => '_academix_journal_article_doi',
+					'value' => $this->get_doi($entry)
+				)
+			),
+			'post_type' => 'journal_article'
+		);
+		
+		$rd_query = new WP_Query( $rd_args );
+		if ( $rd_query->have_posts() ) {
+			return TRUE;
+		}else {
+			return FALSE;
+		}
+	}
+	
+	function get_cat_id($entry){
+		$categories = get_terms(array(
+			'taxonomy' => 'journal_article_cat',
+			'get' => 'all'));
+		foreach ($categories as $category) {
+			if ($entry['year'] == $category->name){
+				return $category;
+			}
+		}
+		return 0;
 	}
 	
 	function term_for_entry( $entry ) {
@@ -130,8 +164,8 @@ class BibTeX_Import extends WP_Importer {
 	  switch ($step) {
 		  case 0: {
 			  include_once( ABSPATH . 'wp-admin/admin-header.php' );
-			  if ( !current_user_can('manage_links') )
-				  wp_die(__('Cheatin&#8217; uh?', 'bibtex-importer'));
+			  //if ( !current_user_can('manage_links') )
+			//	  wp_die(__('Cheatin&#8217; uh?', 'bibtex-importer'));
 	      ?>
 
 				<div class="wrap">
@@ -156,18 +190,6 @@ class BibTeX_Import extends WP_Importer {
 
 				</div>
 
-				<p style="clear: both; margin-top: 1em;"><label for="cat_id"><?php _e('The importer will automatically file the links into categories based on the BibTeX entry type (and create the category if necessary).<br/>In addition, all references should use this category:', 'bibtex-importer') ?></label> <select name="cat_id" id="cat_id">
-				<?php
-				$categories = get_terms('link_category', array('get' => 'all'));
-				foreach ($categories as $category) {
-				  ?>
-				  <option value="<?php echo $category->term_id; ?>"><?php echo esc_html(apply_filters('link_category', $category->name)); ?></option>
-				  <?php
-				} // end foreach
-			
-				?>
-				</select></p>
-
 				<p class="submit"><input type="submit" name="submit" value="<?php esc_attr_e('Import BibTeX File', 'bibtex-importer') ?>" /></p>
 				</form>
 
@@ -180,17 +202,13 @@ class BibTeX_Import extends WP_Importer {
 			check_admin_referer('import-bookmarks');
 
 			include_once( ABSPATH . 'wp-admin/admin-header.php' );
-			if ( !current_user_can('manage_links') )
-				wp_die(__('Cheatin&#8217; uh?', 'bibtex-importer'));
+			//if ( !current_user_can('manage_links') )
+				//	wp_die(__('Cheatin&#8217; uh?', 'bibtex-importer'));
 	?>
 	<div class="wrap">
 
 	<h2><?php _e('Importing...', 'bibtex-importer') ?></h2>
 	<?php
-			$cat_id = abs( (int) $_POST['cat_id'] );
-			if ( $cat_id < 1 )
-				$cat_id  = 1;
-			$import_category = get_term($cat_id, 'link_category');
 
 	    $bibtex = "";
 			$bibtex_url = $_POST['bibtex_url'];
@@ -225,33 +243,50 @@ class BibTeX_Import extends WP_Importer {
 				
 			  $imports = 0;
 				foreach ($entries as $key => $entry) {
+					//print_r($entry);
 					printf('<p>');
 					// Links require link_url and link_name, and should not be duplicates (based on doi/url)
 					$entry['link'] = $this->doi_or_url( $entry );
-					if ($entry['link'] == "") {
-						echo sprintf(__('<strong style="color: red;">Not imported because of missing URL.</strong> ', 'bibtex-importer'));
-					} elseif ($entry['title'] == "") {
+					if ($entry['title'] == "") {
 						echo sprintf(__('<strong style="color: red;">Not imported because of missing title.</strong> ', 'bibtex-importer'));
+					} elseif ($entry['bibtexEntryType'] != 'article'){
+						echo sprintf(__('<strong style="color: red;">Only articles can be imported.</strong> ', 'bibtex-importer'));
+					} elseif ($entry['doi'] == "") {
+						echo sprintf(__('<strong style="color: red;">Not imported because of missing DOI.</strong> ', 'bibtex-importer'));
 					} elseif ($this->is_duplicate( $entry )) {
 						echo sprintf(__('<strong style="color: red;">Not imported because reference already exists.</strong> ', 'bibtex-importer'));
 					} else {
 						// Fetch original bibtex entry, to be stored in notes field. Strip trailing space
 						$notes = ltrim($bibtex_entries[$key]);
-						$link = array( 'link_url' => $wpdb->escape($entry['link']), 
-													 'link_name' => $wpdb->escape($this->author_year( $entry ) . $this->trimmed_title( $entry )), 
-													 'link_category' => array($cat_id, $this->term_for_entry( $entry )), 
-													 'link_notes' => $wpdb->escape($notes), 
-													 'link_rating' => $wpdb->escape($entry['rating']), 
-													 'link_owner' => $user_ID);
-											
-						wp_insert_link($link);
+						$aux = ' <strong>Vol. '.$entry['volume'].'</strong>';
+						if ($entry['number']!=""){
+							$aux = $aux.', No. '.$entry['number'];
+						}
+						$aux = $aux.', pp. '.$entry['pages'].'.';
+						$cuentecilla = substr_count($entry['author'], "and") - 1;
+						$authors = preg_replace('/ and /', ', ', $entry['author'], $cuentecilla);
+						$post = array(	'post_type' => 'journal_article',
+											'post_title' => $wpdb->prepare($entry['title']),
+											'post_status' => 'publish', //change for automatically published
+											'meta_input'   => array(
+												'_academix_journal_article_authors_name' => $wpdb->prepare($authors),
+												'_academix_journal_article_research_topic' => $wpdb->prepare($entry['journal']),
+												'_academix_journal_article_publication_identity' => $wpdb->prepare($aux),
+												'_academix_journal_article_doi' => $wpdb->prepare($this->get_doi($entry)),
+												'_academix_journal_article_doi_link' => 'http://dx.doi.org/' . $this->get_doi($entry)),
+											);
+						$post_id = wp_insert_post($post);	
+						
+						$category = $this-> get_cat_id($entry);
+						$term_taxonomy_ids = wp_set_post_terms( $post_id, (int)$category->term_taxonomy_id, 'journal_article_cat' );
+						
 						$imports++;
 					}
-					echo sprintf(__('<strong>%s</strong> %s', 'bibtex-importer').'</p>', $this->author_year( $entry ), $this->trimmed_title( $entry ));
+					echo sprintf(__('<strong>%s</strong> %s', 'bibtex-importer').'</p>', $authors, $this->trimmed_title( $entry ));
 				}
 	?>
 
-	<p><?php printf(__('<p>Inserted %1$d out of %2$d references into category <strong>%3$s</strong>. Go <a href="%4$s">manage those links</a>.', 'bibtex-importer'), $imports, count($entries), $import_category->name, 'link-manager.php') ?></p>
+	<p><?php printf(__('<p>Inserted %1$d out of %2$d references into category <strong>%3$s</strong>. Go <a href="%4$s">manage those entries</a>.', 'bibtex-importer'), $imports, count($entries), $import_category->name, 'edit.php?post_type=journal_article') ?></p>
 	<?php
 	} // end if got url
 	else
